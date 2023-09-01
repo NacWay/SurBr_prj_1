@@ -1,4 +1,4 @@
-package com.template.server_rd_ct.Firebase
+package com.template
 
 import android.app.NotificationManager
 import android.content.Intent
@@ -7,8 +7,6 @@ import android.media.RingtoneManager
 import androidx.core.app.NotificationCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
-import com.template.server_rd_ct.MainActivity
-import com.template.server_rd_ct.R
 
 class Notification : FirebaseMessagingService() {
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
@@ -21,7 +19,9 @@ class Notification : FirebaseMessagingService() {
         val defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
         val notificationBuilder: NotificationCompat.Builder = NotificationCompat.Builder(this)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setLargeIcon(BitmapFactory.decodeResource(this.resources, R.drawable.ic_launcher_foreground))
+            .setLargeIcon(BitmapFactory.decodeResource(this.resources,
+                R.drawable.ic_launcher_foreground
+            ))
             .setContentTitle("some message")
             .setContentText(messageBody)
             .setAutoCancel(true)
