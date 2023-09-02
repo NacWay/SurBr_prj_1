@@ -11,7 +11,6 @@ import com.google.firebase.analytics.ktx.analytics
 import com.google.firebase.ktx.Firebase
 
 
-@Suppress("DEPRECATION")
 class MainActivity : AppCompatActivity() {
     private lateinit var firebaseAnalytics: FirebaseAnalytics
     private lateinit var preferences: SharedPreferences
@@ -22,29 +21,10 @@ class MainActivity : AppCompatActivity() {
 
         firebaseAnalytics = Firebase.analytics
 
-
-        preferences = getSharedPreferences("isEmptyLink", MODE_PRIVATE)
-
-        val arguments = intent.extras
-        val res = arguments!!.get("isEmptyLink").toString()
-
-        val editPref: SharedPreferences.Editor = preferences.edit()
-        editPref.putString("name", res)
-        editPref.commit()
-
-
-        if (res != "true") {
-            if (isConnected)
-                startActivity(Intent(this, LoadingActivity::class.java))
-        }
+        startActivity(Intent(this@MainActivity, LoadingActivity::class.java))
     }
 
-    // Проверяем интернет
-    val Context.isConnected: Boolean
-        get() {
-            return (getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager)
-                .activeNetworkInfo?.isConnected == true
-        }
+
 
 
 
