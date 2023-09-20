@@ -1,29 +1,27 @@
 package com.template
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
-import android.os.Build
-import android.os.Bundle
+import android.net.Uri
+import android.os.*
+import android.os.StrictMode.ThreadPolicy
 import android.webkit.WebView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.browser.customtabs.CustomTabColorSchemeParams
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.content.ContextCompat
-import com.google.firebase.database.*
+import com.google.firebase.analytics.FirebaseAnalytics
+import com.google.firebase.analytics.ktx.analytics
+import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.ktx.database
 import com.google.firebase.ktx.Firebase
-import com.template.retrofit.UrlAPI
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import okhttp3.OkHttpClient
-import okhttp3.logging.HttpLoggingInterceptor
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
+import kotlinx.coroutines.*
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.URL
@@ -32,61 +30,142 @@ import javax.net.ssl.HttpsURLConnection
 
 
 class LoadingActivity : AppCompatActivity() {
-    private lateinit var preferences: SharedPreferences
-    private lateinit var preferences1: SharedPreferences
+    private lateinit var prefLinkFirebase: SharedPreferences
+    private lateinit var prefCheckRequest: SharedPreferences
+    private lateinit var prefLinkFromServer: SharedPreferences
+    private lateinit var prefURLtoOpenInTabs: SharedPreferences
     private lateinit var db: DatabaseReference
-    private lateinit var link: String
-    private lateinit var link2: String
     private lateinit var userAgent : String
+    private lateinit var firebaseAnalytics: FirebaseAnalytics
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_loading2)
 
+        db = Firebase.database.reference
+        firebaseAnalytics = Firebase.analytics
+
         askNotificationPermission()
 
-        db = Firebase.database.reference
-
-        preferences = getSharedPreferences("linkFirebase", MODE_PRIVATE)
-        preferences1 = getSharedPreferences("requestWasSend", MODE_PRIVATE)
+        prefLinkFirebase = getSharedPreferences("linkFirebase", MODE_PRIVATE)
+        prefCheckRequest = getSharedPreferences("requestWasSend", MODE_PRIVATE)
+        prefLinkFromServer = getSharedPreferences("isResponse", MODE_PRIVATE)
+        prefURLtoOpenInTabs = getSharedPreferences("URL", MODE_PRIVATE)
 
         userAgent = WebView(this@LoadingActivity).settings.userAgentString
         val timeZone = TimeZone.getDefault().toString().substringAfter("id=\"").substringBefore('"')
 
+        val policy = ThreadPolicy.Builder().permitAll().build()
+        StrictMode.setThreadPolicy(policy)
 
+        //Проверка подключения к сети
+        if(isConnected) {
+            //Проверка был ли запрос к серверу завершен ошибкой
+            if(prefLinkFromServer.getString("isResponse", "").toString()!="Error"){
+            //Проверка получнена ли URL ссылка для ChromeTabs при первом запуске приложения
+             if (prefLinkFromServer.getString("isResponse", "").toString() == "") {
+                 //Toast.makeText(this@LoadingActivity, "Open URL for the first time", Toast.LENGTH_SHORT).show()
+                //Проверяем был ли уже запрос к Firebase RDB
+                if (prefCheckRequest.getBoolean("requestWasSend", false) == false) {
+                    //Работа с БД в отдельном потоке. Для быстрого обмена переменными все сделано последовательно
+                    CoroutineScope(Dispatchers.IO).launch {
+                        var stop = false
+                        db.child("db").child("link").get().addOnCompleteListener { task ->
+                            //Объявляем цикл для удобного выхода из него
+                            while (!stop)
+                                if (task.isSuccessful) {
+                                    //Проверяем сслыку из Firebase
+                                    if (task.result.value.toString() == "") {
+                                        finish()
+                                        break
+                                    }
+                                    //сохраняем результат
+                                    val editPrefLinkFirebase: SharedPreferences.Editor =
+                                        prefLinkFirebase.edit()
+                                    val editPrefCheckRequest: SharedPreferences.Editor =
+                                        prefCheckRequest.edit()
+                                    editPrefLinkFirebase.putString(
+                                        "linkFirebase",
+                                        task.result.value.toString()
+                                    )
+                                    editPrefCheckRequest.putBoolean("requestWasSend", false)
+                                    editPrefLinkFirebase.commit()
+                                    editPrefCheckRequest.commit()
 
-        if(!isConnected) {
+                                    //Формируем ссылку
+                                    val editPrefURLtoOpenInTabs: SharedPreferences.Editor =
+                                        prefURLtoOpenInTabs.edit()
+                                    editPrefURLtoOpenInTabs.putString(
+                                        "URL", task.result.value.toString() +
+                                                "/?" +
+                                                "packageid=$packageName" +
+                                                "&usserid=${UUID.randomUUID()}" +
+                                                "&getz=$timeZone" +
+                                                "&getr=utm_source=google-play&utm_medium=organic"
+                                    )
+                                    editPrefURLtoOpenInTabs.commit()
+                                    //отправляем запрос на сервер в заголовок добавляем user-agent
+                                    try {
+                                        val url = URL(prefURLtoOpenInTabs.getString("URL", ""))
+                                        val connection: HttpsURLConnection =
+                                            url.openConnection() as HttpsURLConnection
+                                        connection.setRequestProperty("User-Agent", userAgent)
+
+                                        val br =
+                                            BufferedReader(InputStreamReader(connection.inputStream))
+                                        val line: String = br.readLine()
+
+                                        //Сохраняем полученную ссылку
+                                        val editPrefLinkFromServer: SharedPreferences.Editor =
+                                            prefLinkFromServer.edit()
+                                        editPrefLinkFromServer.putString("isResponse", line.toString())
+                                        editPrefLinkFromServer.commit()
+                                        connection.disconnect()
+                                    } catch (e: Exception) {
+                                        //если ошибка- выходим в main_activity и запоминаем получение ошибки
+                                        val editPrefLinkFromServer: SharedPreferences.Editor =
+                                            prefLinkFromServer.edit()
+                                        editPrefLinkFromServer.putString("isResponse","Error" )
+                                        editPrefLinkFromServer.commit()
+                                        finish()
+                                        break
+                                    }
+                                    //Открываем полученную ссылку в chrometabs
+                                    openTabs(
+                                        prefLinkFromServer.getString("isResponse", "").toString()
+                                    )
+                                    //завершаем цикл
+                                    break
+                                } else {
+                                    //Ошибка при работе с Firebase
+                                    Toast.makeText(
+                                        this@LoadingActivity,
+                                        "ERROR FIREBASE ",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                        }
+                    }
+                }
+                } else
+                    {
+                        //Проверка получнена ли URL ссылка для ChromeTabs при первом запуске приложения
+                        //Toast.makeText(this@LoadingActivity, "Open URL not for the first time", Toast.LENGTH_SHORT).show()
+                        openTabs(prefLinkFromServer.getString("isResponse", "").toString())
+
+                    }
+            } else
+                {
+                    //Проверка был ли запрос к серверу завершен ошибкой
+                    //Toast.makeText(this@LoadingActivity, "Error to connect Server", Toast.LENGTH_SHORT).show()
+                    finish()
+                }
+        } else
+            {
+                //Проверка подключения к сети
             Toast.makeText(this@LoadingActivity, "Check Internet connection", Toast.LENGTH_SHORT).show()
             finish()
-        }
-        if(preferences1.getBoolean("requestWasSend", false)==false){
-            CoroutineScope(Dispatchers.IO).launch {
-                getDataFromDb()
             }
-
-           if (preferences.getString("linkFirebase", "link").toString().isEmpty()) finish()
-       }
-        Toast.makeText(this@LoadingActivity, preferences.getString("linkFirebase", "link").toString(), Toast.LENGTH_SHORT).show()
-
-        link = preferences.getString("linkFirebase", "link").toString() +
-                "/?"+
-                "packageid=$packageName" +
-                "&usserid=${UUID.randomUUID()}" +
-                "&getz=$timeZone" +
-                "&getr=utm_source=google-play&utm_medium=organic"
-
-
-
-        httpscon()
-        Thread.sleep(1000)
-        Toast.makeText(this@LoadingActivity, link2, Toast.LENGTH_SHORT).show()
-
-//        val build  = AlertDialog.Builder(this@LoadingActivity)
-//        build.setMessage(link2).show()
-
-
-
-
     }
 
     // Проверяем интернет
@@ -101,9 +180,9 @@ class LoadingActivity : AppCompatActivity() {
         ActivityResultContracts.RequestPermission(),
     ) { isGranted: Boolean ->
         if (isGranted) {
-            Toast.makeText(this, "Thanks!", Toast.LENGTH_SHORT).show()
+            //  Toast.makeText(this, "Thanks!", Toast.LENGTH_SHORT).show()
         } else {
-            Toast.makeText(this, ":(", Toast.LENGTH_SHORT).show()
+            //  Toast.makeText(this, ":(", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -120,69 +199,18 @@ class LoadingActivity : AppCompatActivity() {
         }
     }
 
-    //Чтение из БД
-     fun getDataFromDb(){
-
-        val postListener = object : ValueEventListener {
-            override fun onDataChange(dataSnapshot: DataSnapshot) {
-
-
-                    val editPref: SharedPreferences.Editor = preferences.edit()
-                    val editPref1: SharedPreferences.Editor = preferences1.edit()
-                    editPref.putString("linkFirebase", dataSnapshot.child("db").child("link").value.toString())
-                    editPref1.putBoolean("requestWasSend", true)
-                    editPref.commit()
-                    editPref1.commit()
-
-
-
-
-                //Toast.makeText(this@LoadingActivity, preferences.getString("linkFirebase", "link").toString(), Toast.LENGTH_SHORT).show()
-            }
-            override fun onCancelled(databaseError: DatabaseError) {
-                Toast.makeText(this@LoadingActivity, databaseError.toException().toString(), Toast.LENGTH_SHORT).show()
-            }
-        }
-        db.addValueEventListener(postListener)
-
-    }
-
-    fun retrofit(link1: String) : String{
-        var str = ""
-
-        val interceptor = HttpLoggingInterceptor()
-        interceptor.level = HttpLoggingInterceptor.Level.BODY
-
-        val client = OkHttpClient.Builder()
-            .addInterceptor(interceptor)
+    //открываем ссылку в ChromeCustomTabs
+    @SuppressLint("ResourceAsColor")
+    private fun openTabs(url: String){
+        val intent: CustomTabsIntent = CustomTabsIntent.Builder()
+            .setDefaultColorSchemeParams(
+                CustomTabColorSchemeParams.Builder()
+                .setToolbarColor(R.color.black)
+                .build())
+            .setColorSchemeParams(CustomTabsIntent.COLOR_SCHEME_DARK, CustomTabColorSchemeParams.Builder()
+                .setToolbarColor(R.color.black)
+                .build())
             .build()
-
-        val retrofit = Retrofit.Builder()
-            .baseUrl(link1)
-            .client(client)
-            .addConverterFactory(GsonConverterFactory.create())
-            .build()
-        val UrlAPI = retrofit.create(UrlAPI::class.java)
-
-        CoroutineScope(Dispatchers.IO).launch {
-            val URL_2 = UrlAPI.getURL()
-            runOnUiThread {
-                str = URL_2.toString()
-            }
-        }
-        return str
-    }
-
-    fun httpscon(){
-        CoroutineScope(Dispatchers.IO).launch {
-            val url = URL(link)
-            val connection: HttpsURLConnection = url.openConnection() as HttpsURLConnection
-            val br = BufferedReader(InputStreamReader(connection.getInputStream()))
-
-            val line: String =  br.readLine()
-
-            link2=line
-        }
-
+        intent.launchUrl(this@LoadingActivity, Uri.parse(url))
     }
 }

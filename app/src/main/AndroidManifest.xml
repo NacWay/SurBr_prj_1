@@ -21,14 +21,17 @@
             android:name="com.template.LoadingActivity"
             android:exported="false"
             android:label="@string/title_activity_loading"
-            android:theme="@style/Theme.Server_RD_CT.NoActionBar">
+            android:theme="@style/Theme.Server_RD_CT.NoActionBar"
+            android:screenOrientation="portrait"
+            >
             <meta-data
                 android:name="android.app.lib_name"
                 android:value="" />
         </activity>
         <activity
             android:name="com.template.MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

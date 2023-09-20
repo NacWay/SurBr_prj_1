@@ -1,9 +1,6 @@
 package com.template
 
-import android.content.Context
 import android.content.Intent
-import android.content.SharedPreferences
-import android.net.ConnectivityManager
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import com.google.firebase.analytics.FirebaseAnalytics
@@ -13,7 +10,6 @@ import com.google.firebase.ktx.Firebase
 
 class MainActivity : AppCompatActivity() {
     private lateinit var firebaseAnalytics: FirebaseAnalytics
-    private lateinit var preferences: SharedPreferences
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -23,6 +19,7 @@ class MainActivity : AppCompatActivity() {
 
         startActivity(Intent(this@MainActivity, LoadingActivity::class.java))
     }
+
 
 
 
